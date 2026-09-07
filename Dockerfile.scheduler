@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV WEB_UI_PORT=8080
+
+COPY automation/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY automation /app/automation
+COPY queue.json /app/queue.json
+
+EXPOSE 8080
+
+CMD ["python", "automation/web_ui.py"]

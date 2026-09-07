@@ -1,0 +1,38 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Submodules / External repositories
+openshorts-repo/
+
+# Environment Variables & Secrets
+.env
+credentials/*.json
+!credentials/.gitkeep
+
+# Output and Processed Media
+output/
+uploads/
+processed_shorts/
+
+# State & Logs
+queue.json
+*.log
+scheduler.log
+
+# Model Weights
+*.pt
+*.onnx
+*.bin
+
+# Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.DS_Store
+
+# Temporary files
+*.tmp

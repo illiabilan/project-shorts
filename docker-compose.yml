@@ -1,0 +1,54 @@
+services:
+  openshorts:
+    build:
+      context: ./openshorts-repo
+      dockerfile: Dockerfile
+    container_name: openshorts-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      - GEMINI_MODEL_THUMBNAIL=${GEMINI_MODEL_THUMBNAIL:-gemini-3.7-flash}
+      - FFMPEG_ENCODER=${FFMPEG_ENCODER:-x264}
+      - WHISPER_MODEL=${WHISPER_MODEL:-small}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE=${WHISPER_COMPUTE:-int8}
+      - RATE_LIMIT_ENABLED=0
+    volumes:
+      - openshorts_data:/app/output
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: shorts-autonomous-scheduler
+    restart: unless-stopped
+    depends_on:
+      - openshorts
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - OPENSHORTS_API_URL=http://openshorts:8000
+      - QUEUE_FILE=/app/queue.json
+      - OUTPUT_DIR=/app/processed_shorts
+      - POLL_INTERVAL_SEC=${POLL_INTERVAL_SEC:-30}
+      - JOB_CHECK_INTERVAL_SEC=${JOB_CHECK_INTERVAL_SEC:-10}
+      - AUTO_POST=${AUTO_POST:-false}
+      - AUTO_POST_INTERVAL_HOURS=${AUTO_POST_INTERVAL_HOURS:-3}
+      - YOUTUBE_CLIENT_SECRETS=/app/credentials/client_secrets.json
+      - YOUTUBE_TOKEN_FILE=/app/credentials/token.json
+      - WEB_UI_PORT=8080
+    volumes:
+      - ./queue.json:/app/queue.json
+      - ./processed_shorts:/app/processed_shorts
+      - ./automation:/app/automation
+      - ./credentials:/app/credentials
+
+volumes:
+  openshorts_data:

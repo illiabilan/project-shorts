@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="uk" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenShorts Pipeline Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Navigation Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/30">
+          <i class="fa-solid fa-scissors"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+            OpenShorts <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">Pipeline v2</span>
+          </h1>
+          <p class="text-xs text-slate-400">Автономний планувальник та автопостер</p>
+        </div>
+      </div>
+
+      <!-- Quick Status & Controls -->
+      <div class="flex items-center space-x-4">
+        <div id="worker-badge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-800 border border-slate-700">
+          <span class="w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse"></span>
+          <span id="worker-status-text">Перевірка...</span>
+        </div>
+        <button id="toggle-worker-btn" onclick="toggleScheduler()" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-power-off"></i> <span>Зупинити</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI Metric Cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">В черзі</p>
+          <p id="stat-pending" class="text-2xl font-bold text-amber-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-clock"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">В обробці</p>
+          <p id="stat-processing" class="text-2xl font-bold text-indigo-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-gear fa-spin"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Готово відео</p>
+          <p id="stat-completed" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-circle-check"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Кліпів згенеровано</p>
+          <p id="stat-clips" class="text-2xl font-bold text-violet-400 mt-1">0</p>
+        </div>
+        <div class="w-10 h-10 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center text-lg">
+          <i class="fa-solid fa-film"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Job Banner (if processing) -->
+    <div id="active-job-box" class="hidden bg-gradient-to-r from-indigo-950/60 to-purple-950/60 border border-indigo-500/30 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xl flex-shrink-0 animate-spin">
+          <i class="fa-solid fa-circle-notch"></i>
+        </div>
+        <div>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/30 text-indigo-300 uppercase tracking-wider" id="active-stage">РЕЖИМ ОБРОБКИ</span>
+          <h3 id="active-title" class="font-medium text-sm text-slate-200 mt-1 line-clamp-1">Завантаження завдання...</h3>
+          <p id="active-sub" class="text-xs text-slate-400 mt-0.5">Аналіз транскрипту Gemini + Whisper та нарізка 9:16 FFmpeg</p>
+        </div>
+      </div>
+      <div class="text-xs text-indigo-300 font-mono bg-indigo-900/40 px-3 py-1.5 rounded-lg border border-indigo-700/40">
+        Job ID: <span id="active-job-id">-</span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="border-b border-slate-800 flex space-x-6 text-sm font-medium">
+      <button onclick="switchTab('queue')" id="tab-btn-queue" class="pb-3 border-b-2 border-indigo-500 text-indigo-400 flex items-center gap-2 cursor-pointer transition">
+        <i class="fa-solid fa-list-check"></i> <span>Черга задач</span>
+      </button>
+      <button onclick="switchTab('clips')" id="tab-btn-clips" class="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-300 flex items-center gap-2 cursor-pointer transition">
+        <i class="fa-solid fa-photo-film"></i> <span>Готові Shorts</span>
+      </button>
+      <button onclick="switchTab('logs')" id="tab-btn-logs" class="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-300 flex items-center gap-2 cursor-pointer transition">
+        <i class="fa-solid fa-terminal"></i> <span>Логи в реальному часі</span>
+      </button>
+      <button onclick="switchTab('settings')" id="tab-btn-settings" class="pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-300 flex items-center gap-2 cursor-pointer transition">
+        <i class="fa-solid fa-sliders"></i> <span>Налаштування & API</span>
+      </button>
+    </div>
+
+    <!-- TAB 1: QUEUE MANAGER -->
+    <div id="tab-queue" class="space-y-6">
+      <!-- Add Video Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+        <h2 class="text-base font-semibold text-slate-100 flex items-center gap-2 mb-4">
+          <i class="fa-solid fa-plus-circle text-indigo-400"></i> Додати YouTube відео на нарізку
+        </h2>
+        
+        <form id="add-video-form" onsubmit="submitVideo(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">YouTube URL (або декілька посилань, кожне з нового рядка)</label>
+            <textarea id="input-urls" rows="2" required placeholder="https://www.youtube.com/watch?v=..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"></textarea>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Режим кадрування (Layout)</label>
+              <select id="input-layout" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                <option value="auto">Auto (AI підбирає під тип сцени)</option>
+                <option value="track">Track (MediaPipe стеження за обличчям)</option>
+                <option value="split">Split (Стек двох спікерів + шов)</option>
+                <option value="general">General (Розмитий фон без кропу)</option>
+                <option value="screencast">Screencast (Екран зверху + обличчя знизу)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Кількість кліпів (Target)</label>
+              <input type="text" id="input-target-clips" placeholder="Auto (зазвичай 3-8)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+            </div>
+
+            <div class="flex flex-col justify-end">
+              <label class="flex items-center space-x-2 cursor-pointer pb-2">
+                <input type="checkbox" id="input-autopost" class="rounded bg-slate-950 border-slate-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                <span class="text-xs font-medium text-slate-300">Автопостинг на YouTube</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+            <span class="text-xs text-slate-400"><i class="fa-brands fa-google text-indigo-400"></i> Обробка через Gemini Flash + Whisper + FFmpeg</span>
+            <button type="submit" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition shadow-md shadow-indigo-600/30 flex items-center gap-2 cursor-pointer">
+              <i class="fa-solid fa-paper-plane"></i> <span>Додати в чергу</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Queue Tables Section -->
+      <div class="grid grid-cols-1 gap-6">
+        <!-- Pending Queue -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="font-semibold text-sm text-amber-400 flex items-center gap-2">
+              <i class="fa-solid fa-hourglass-start"></i> Очікують на обробку (<span id="count-pending">0</span>)
+            </h3>
+            <button onclick="fetchQueue()" class="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer">
+              <i class="fa-solid fa-arrows-rotate"></i> Оновити
+            </button>
+          </div>
+          <div id="list-pending" class="divide-y divide-slate-800/60 max-h-72 overflow-y-auto custom-scrollbar">
+            <p class="text-xs text-slate-500 p-4 text-center">Черга порожня</p>
+          </div>
+        </div>
+
+        <!-- Failed Queue -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+            <h3 class="font-semibold text-sm text-rose-400 flex items-center gap-2">
+              <i class="fa-solid fa-triangle-exclamation"></i> З помилками (<span id="count-failed">0</span>)
+            </h3>
+          </div>
+          <div id="list-failed" class="divide-y divide-slate-800/60 max-h-72 overflow-y-auto custom-scrollbar">
+            <p class="text-xs text-slate-500 p-4 text-center">Немає відео з помилками</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: CLIPS GALLERY -->
+    <div id="tab-clips" class="hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-slate-100 flex items-center gap-2">
+          <i class="fa-solid fa-video text-indigo-400"></i> Відрендерені вертикальні кліпи (9:16)
+        </h2>
+        <button onclick="fetchQueue()" class="text-xs text-slate-400 hover:text-slate-200 transition flex items-center gap-1 cursor-pointer">
+          <i class="fa-solid fa-arrows-rotate"></i> Оновити галерею
+        </button>
+      </div>
+
+      <div id="clips-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <p class="col-span-full text-center text-sm text-slate-500 py-12">Ще немає готових кліпів. Додайте відео в чергу!</p>
+      </div>
+    </div>
+
+    <!-- TAB 3: LIVE LOGS -->
+    <div id="tab-logs" class="hidden space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-slate-100 flex items-center gap-2">
+          <i class="fa-solid fa-terminal text-indigo-400"></i> Потокові логи планувальника
+        </h2>
+        <div class="flex items-center space-x-3">
+          <label class="text-xs text-slate-400 flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" id="auto-scroll-logs" checked class="rounded bg-slate-950 border-slate-700">
+            <span>Автопрокрутка</span>
+          </label>
+          <button onclick="fetchLogs()" class="text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 cursor-pointer">
+            Оновити
+          </button>
+        </div>
+      </div>
+
+      <div id="logs-box" class="bg-black/90 border border-slate-800 font-mono text-xs rounded-xl p-4 h-96 overflow-y-auto custom-scrollbar space-y-1">
+        <p class="text-slate-600">// Логи завантажуються...</p>
+      </div>
+    </div>
+
+    <!-- TAB 4: SETTINGS & CONFIG -->
+    <div id="tab-settings" class="hidden space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+        <div>
+          <h3 class="text-base font-semibold text-slate-100 flex items-center gap-2">
+            <i class="fa-solid fa-key text-indigo-400"></i> Налаштування API та Рушія
+          </h3>
+          <p class="text-xs text-slate-400 mt-1">Зміни автоматично записуються у файл .env</p>
+        </div>
+
+        <form id="settings-form" onsubmit="saveSettings(event)" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Google Gemini API Key</label>
+              <input type="password" id="cfg-gemini-key" placeholder="AIzaSy..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+              <span id="cfg-key-hint" class="text-[11px] text-slate-500 mt-0.5 block">Отримати безкоштовно на aistudio.google.com</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Gemini Model</label>
+              <select id="cfg-gemini-model" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Рекомендована, швидка)</option>
+                <option value="gemini-3.7-flash">gemini-3.7-flash (Максимальна якість)</option>
+                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">FFmpeg Video Encoder</label>
+              <select id="cfg-ffmpeg" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                <option value="x264">x264 (Універсальний CPU Linux/Mac)</option>
+                <option value="vaapi">VA-API (AMD Radeon GPU апаратне прискорення)</option>
+                <option value="nvenc">NVENC (NVIDIA GPU)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Whisper модель (Субтитри)</label>
+              <select id="cfg-whisper-model" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                <option value="small">small (Оптимально на CPU)</option>
+                <option value="base">base (Найшвидша)</option>
+                <option value="large-v3-turbo">large-v3-turbo (Для GPU)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Інтервал між публікаціями (годин)</label>
+              <input type="number" step="0.5" id="cfg-post-interval" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Частота перевірки черги (секунд)</label>
+              <input type="number" id="cfg-poll-interval" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+            </div>
+          </div>
+
+          <!-- YouTube Auth Box -->
+          <div class="border border-slate-800 rounded-xl p-4 bg-slate-950/60 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <i class="fa-brands fa-youtube text-red-500 text-lg"></i>
+                <span class="text-sm font-semibold text-slate-200">YouTube Data API v3 (Авторизація каналу)</span>
+              </div>
+              <span id="yt-auth-badge" class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-mono">Перевірка...</span>
+            </div>
+            <p id="yt-auth-desc" class="text-xs text-slate-400">
+              Покладіть файл credentials/client_secrets.json (OAuth 2.0 Desktop Application) для прямого завантаження у ваші YouTube Shorts.
+            </p>
+          </div>
+
+          <div class="flex justify-end pt-2">
+            <button type="submit" class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition flex items-center gap-2 cursor-pointer">
+              <i class="fa-solid fa-save"></i> <span>Зберегти налаштування</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <!-- Video Modal Player -->
+  <div id="video-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="closeVideoModal(event)">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl" onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+        <h3 id="modal-video-title" class="text-sm font-bold text-slate-200 line-clamp-1">Перегляд Short</h3>
+        <button onclick="closeVideoModal()" class="text-slate-400 hover:text-slate-200 text-lg px-2 cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="bg-black flex items-center justify-center" style="max-height: 70vh;">
+        <video id="modal-video-player" controls autoplay class="max-h-[68vh] w-auto mx-auto"></video>
+      </div>
+      <div class="p-4 space-y-3 bg-slate-900">
+        <p id="modal-video-hook" class="text-xs font-semibold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20"></p>
+        <div class="flex items-center justify-between">
+          <a id="modal-download-btn" href="#" download class="text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg transition flex items-center gap-1.5">
+            <i class="fa-solid fa-download"></i> Завантажити MP4
+          </a>
+          <button id="modal-publish-btn" onclick="publishModalClip()" class="text-xs text-white bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg transition flex items-center gap-1.5 font-medium shadow-md shadow-red-600/30 cursor-pointer">
+            <i class="fa-brands fa-youtube"></i> Опублікувати на YouTube
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let activeModalClip = null;
+
+    function switchTab(tabId) {
+      const tabs = ['queue', 'clips', 'logs', 'settings'];
+      tabs.forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        const btn = document.getElementById('tab-btn-' + t);
+        if (el) el.classList.add('hidden');
+        if (btn) btn.className = 'pb-3 border-b-2 border-transparent text-slate-400 hover:text-slate-300 flex items-center gap-2 cursor-pointer transition';
+      });
+
+      const activeEl = document.getElementById('tab-' + tabId);
+      const activeBtn = document.getElementById('tab-btn-' + tabId);
+      if (activeEl) activeEl.classList.remove('hidden');
+      if (activeBtn) activeBtn.className = 'pb-3 border-b-2 border-indigo-500 text-indigo-400 flex items-center gap-2 cursor-pointer transition';
+
+      if (tabId === 'logs') fetchLogs();
+      if (tabId === 'settings') fetchSettings();
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        // Worker Badge
+        const badge = document.getElementById('worker-badge');
+        const toggleBtn = document.getElementById('toggle-worker-btn');
+
+        if (data.scheduler.is_running) {
+          badge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
+          badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span>Активний</span>';
+          if (toggleBtn) toggleBtn.querySelector('span').textContent = 'Зупинити';
+        } else {
+          badge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700';
+          badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-500"></span><span>Зупинено</span>';
+          if (toggleBtn) toggleBtn.querySelector('span').textContent = 'Запустити';
+        }
+
+        // Active processing card
+        const activeBox = document.getElementById('active-job-box');
+        if (data.scheduler.current_stage !== 'idle' && data.scheduler.current_item) {
+          activeBox.classList.remove('hidden');
+          document.getElementById('active-stage').textContent = data.scheduler.current_stage.toUpperCase().replace(/_/g, ' ');
+          document.getElementById('active-title').textContent = data.scheduler.current_item.url;
+          document.getElementById('active-job-id').textContent = data.scheduler.current_job_id || 'ініціалізація...';
+        } else {
+          activeBox.classList.add('hidden');
+        }
+
+        // Stats
+        document.getElementById('stat-pending').textContent = data.queue_summary.pending;
+        document.getElementById('stat-processing').textContent = data.queue_summary.processing;
+        document.getElementById('stat-completed').textContent = data.queue_summary.completed;
+        document.getElementById('stat-clips').textContent = data.queue_summary.total_clips;
+
+        // YouTube Status
+        const ytBadge = document.getElementById('yt-auth-badge');
+        const ytDesc = document.getElementById('yt-auth-desc');
+        if (ytBadge && data.youtube_auth) {
+          if (data.youtube_auth.status === 'authenticated') {
+            ytBadge.className = 'text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+            ytBadge.textContent = 'Авторизовано ✅';
+          } else if (data.youtube_auth.status === 'ready_to_auth') {
+            ytBadge.className = 'text-xs px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30';
+            ytBadge.textContent = 'Потрібна авторизація';
+          } else {
+            ytBadge.className = 'text-xs px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30';
+            ytBadge.textContent = 'Не налаштовано';
+          }
+          if (ytDesc) ytDesc.textContent = data.youtube_auth.message;
+        }
+
+      } catch (err) {
+        console.error("Error fetching status:", err);
+      }
+    }
+
+    async function fetchQueue() {
+      try {
+        const res = await fetch('/api/queue');
+        const q = await res.json();
+
+        // Pending list
+        const pendingEl = document.getElementById('list-pending');
+        document.getElementById('count-pending').textContent = (q.pending || []).length;
+        if (!q.pending || q.pending.length === 0) {
+          pendingEl.innerHTML = '<p class="text-xs text-slate-500 p-4 text-center">Черга порожня</p>';
+        } else {
+          pendingEl.innerHTML = q.pending.map((item, idx) => `
+            <div class="p-3 flex items-center justify-between hover:bg-slate-800/40 transition">
+              <div class="flex items-center space-x-3 overflow-hidden">
+                <span class="text-xs font-mono text-slate-500 w-5">#${idx+1}</span>
+                <div class="truncate">
+                  <a href="${item.url}" target="_blank" class="text-xs font-medium text-slate-200 hover:text-indigo-400 truncate block">${item.url}</a>
+                  <span class="text-[11px] text-slate-500">ID: ${item.id} · Layout: ${item.options?.layouts || 'auto'} · Auto-Post: ${item.options?.auto_post ? 'Так' : 'Ні'}</span>
+                </div>
+              </div>
+              <button onclick="deleteItem('pending', '${item.id}')" class="text-xs text-rose-400 hover:text-rose-300 p-1.5 rounded hover:bg-rose-500/10 cursor-pointer">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          `).join('');
+        }
+
+        // Failed list
+        const failedEl = document.getElementById('list-failed');
+        document.getElementById('count-failed').textContent = (q.failed || []).length;
+        if (!q.failed || q.failed.length === 0) {
+          failedEl.innerHTML = '<p class="text-xs text-slate-500 p-4 text-center">Немає помилок</p>';
+        } else {
+          failedEl.innerHTML = q.failed.map(item => `
+            <div class="p-3 flex items-center justify-between hover:bg-slate-800/40 transition">
+              <div class="overflow-hidden">
+                <p class="text-xs font-medium text-slate-200 truncate">${item.url}</p>
+                <p class="text-[11px] text-rose-400 mt-0.5">${item.error || 'Невідома помилка'}</p>
+              </div>
+              <div class="flex items-center space-x-2 flex-shrink-0">
+                <button onclick="retryItem('${item.id}')" class="text-xs px-2.5 py-1 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 rounded border border-indigo-500/30 cursor-pointer">
+                  <i class="fa-solid fa-rotate-right"></i> Повторити
+                </button>
+                <button onclick="deleteItem('failed', '${item.id}')" class="text-xs text-slate-500 hover:text-rose-400 p-1 cursor-pointer">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </div>
+          `).join('');
+        }
+
+        // Completed Clips Gallery
+        renderClips(q.completed || []);
+
+      } catch (err) {
+        console.error("Error fetching queue:", err);
+      }
+    }
+
+    function renderClips(completedJobs) {
+      const container = document.getElementById('clips-container');
+      let allClips = [];
+      completedJobs.forEach(job => {
+        (job.clips || []).forEach(clip => {
+          allClips.push({ ...clip, jobId: job.id, originalUrl: job.url });
+        });
+      });
+
+      if (allClips.length === 0) {
+        container.innerHTML = '<p class="col-span-full text-center text-sm text-slate-500 py-12">Ще немає готових кліпів. Додайте посилання у чергу!</p>';
+        return;
+      }
+
+      container.innerHTML = allClips.map((clip) => {
+        const streamUrl = `/api/video-file/${clip.jobId}/short_${String(clip.clip_index + 1).padStart(2, '0')}.mp4`;
+        const postStatus = clip.youtube_url ? 
+          `<a href="${clip.youtube_url}" target="_blank" class="text-[11px] text-red-400 hover:underline flex items-center gap-1 font-medium"><i class="fa-brands fa-youtube"></i> Опубліковано</a>` : 
+          (clip.status === 'scheduled' ? `<span class="text-[11px] text-amber-400"><i class="fa-solid fa-clock"></i> Заплановано</span>` : 
+          `<span class="text-[11px] text-slate-500">Локальний драфт</span>`);
+
+        const safeTitle = (clip.title || '').replace(/'/g, "\\'");
+        const safeHook = (clip.hook_text || '').replace(/'/g, "\\'");
+
+        return `
+          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col justify-between hover:border-slate-700 transition">
+            <div class="relative bg-black aspect-[9/16] max-h-80 overflow-hidden flex items-center justify-center cursor-pointer group" onclick="openVideoModal('${streamUrl}', '${safeTitle}', '${safeHook}', '${clip.jobId}', ${clip.clip_index})">
+              <video src="${streamUrl}#t=0.5" preload="metadata" class="w-full h-full object-cover"></video>
+              <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                <div class="w-12 h-12 rounded-full bg-indigo-600/90 text-white flex items-center justify-center text-xl shadow-lg">
+                  <i class="fa-solid fa-play"></i>
+                </div>
+              </div>
+              ${clip.hook_text ? `<div class="absolute bottom-2 inset-x-2 bg-black/70 backdrop-blur text-[11px] text-amber-300 font-semibold p-1.5 rounded text-center line-clamp-2">${clip.hook_text}</div>` : ''}
+            </div>
+
+            <div class="p-4 space-y-2.5">
+              <h4 class="text-xs font-semibold text-slate-200 line-clamp-2">${clip.title}</h4>
+              <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                ${postStatus}
+                <button onclick="openVideoModal('${streamUrl}', '${safeTitle}', '${safeHook}', '${clip.jobId}', ${clip.clip_index})" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer">
+                  Опції <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function openVideoModal(url, title, hook, jobId, clipIndex) {
+      activeModalClip = { url, title, hook, jobId, clipIndex };
+      document.getElementById('modal-video-title').textContent = title;
+      document.getElementById('modal-video-hook').textContent = hook ? `Hook: ${hook}` : '';
+      const player = document.getElementById('modal-video-player');
+      player.src = url;
+      document.getElementById('modal-download-btn').href = url;
+      document.getElementById('video-modal').classList.remove('hidden');
+    }
+
+    function closeVideoModal() {
+      const player = document.getElementById('modal-video-player');
+      player.pause();
+      player.src = '';
+      document.getElementById('video-modal').classList.add('hidden');
+      activeModalClip = null;
+    }
+
+    async function publishModalClip() {
+      if (!activeModalClip) return;
+      const btn = document.getElementById('modal-publish-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Завантаження...';
+
+      try {
+        const res = await fetch('/api/clips/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_id: activeModalClip.jobId,
+            clip_index: activeModalClip.clipIndex,
+            title: activeModalClip.title
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert('Успішно опубліковано на YouTube!');
+          closeVideoModal();
+          fetchQueue();
+        } else {
+          alert('Помилка: ' + (data.detail || 'Не вдалося опублікувати'));
+        }
+      } catch (e) {
+        alert('Помилка запиту: ' + e);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-brands fa-youtube"></i> Опублікувати на YouTube';
+      }
+    }
+
+    async function submitVideo(e) {
+      e.preventDefault();
+      const urlsText = document.getElementById('input-urls').value.trim();
+      const layout = document.getElementById('input-layout').value;
+      const targetClips = document.getElementById('input-target-clips').value.trim();
+      const autoPost = document.getElementById('input-autopost').checked;
+
+      const lines = urlsText.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith('http'));
+      if (lines.length === 0) {
+        alert('Введіть коректне посилання на YouTube!');
+        return;
+      }
+
+      try {
+        if (lines.length === 1) {
+          await fetch('/api/queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: lines[0],
+              layouts: layout,
+              target_clips: targetClips || null,
+              auto_post: autoPost
+            })
+          });
+        } else {
+          await fetch('/api/queue/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              urls: urlsText,
+              layouts: layout,
+              auto_post: autoPost
+            })
+          });
+        }
+        document.getElementById('input-urls').value = '';
+        fetchQueue();
+        fetchStatus();
+      } catch (err) {
+        alert('Помилка при додаванні: ' + err);
+      }
+    }
+
+    async function deleteItem(category, id) {
+      if (!confirm('Видалити завдання з черги?')) return;
+      await fetch('/api/queue/' + category + '/' + id, { method: 'DELETE' });
+      fetchQueue();
+      fetchStatus();
+    }
+
+    async function retryItem(id) {
+      await fetch('/api/queue/retry/' + id, { method: 'POST' });
+      fetchQueue();
+      fetchStatus();
+    }
+
+    async function toggleScheduler() {
+      await fetch('/api/scheduler/toggle', { method: 'POST' });
+      fetchStatus();
+    }
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+        const box = document.getElementById('logs-box');
+        if (!data.logs || data.logs.length === 0) {
+          box.innerHTML = '<p class="text-slate-600">// Немає нових логів</p>';
+          return;
+        }
+
+        box.innerHTML = data.logs.map(l => {
+          const color = l.level === 'ERROR' ? 'text-rose-400' : (l.level === 'WARNING' ? 'text-amber-400' : 'text-slate-300');
+          return '<div class="' + color + '"><span class="text-slate-500 font-sans text-[11px]">[' + l.timestamp + ']</span> ' + l.message + '</div>';
+        }).join('');
+
+        if (document.getElementById('auto-scroll-logs').checked) {
+          box.scrollTop = box.scrollHeight;
+        }
+      } catch (e) {
+        console.error("Error fetching logs:", e);
+      }
+    }
+
+    async function fetchSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        document.getElementById('cfg-gemini-model').value = data.gemini_model;
+        document.getElementById('cfg-ffmpeg').value = data.ffmpeg_encoder;
+        document.getElementById('cfg-whisper-model').value = data.whisper_model;
+        document.getElementById('cfg-post-interval').value = data.auto_post_interval_hours;
+        document.getElementById('cfg-poll-interval').value = data.poll_interval_sec;
+        if (data.gemini_api_key_set) {
+          document.getElementById('cfg-key-hint').textContent = 'Ключ встановлено (' + data.gemini_api_key_masked + ')';
+        }
+      } catch (e) {
+        console.error("Error fetching settings:", e);
+      }
+    }
+
+    async function saveSettings(e) {
+      e.preventDefault();
+      const geminiKey = document.getElementById('cfg-gemini-key').value.trim();
+      const payload = {
+        gemini_model: document.getElementById('cfg-gemini-model').value,
+        ffmpeg_encoder: document.getElementById('cfg-ffmpeg').value,
+        whisper_model: document.getElementById('cfg-whisper-model').value,
+        auto_post_interval_hours: parseFloat(document.getElementById('cfg-post-interval').value),
+        poll_interval_sec: parseInt(document.getElementById('cfg-poll-interval').value)
+      };
+      if (geminiKey) payload.gemini_api_key = geminiKey;
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          alert('Налаштування збережено успішно!');
+          fetchSettings();
+        } else {
+          alert('Помилка збереження налаштувань');
+        }
+      } catch (err) {
+        alert('Помилка: ' + err);
+      }
+    }
+
+    // Polling cycles
+    fetchStatus();
+    fetchQueue();
+    setInterval(fetchStatus, 4000);
+    setInterval(fetchQueue, 8000);
+    setInterval(() => {
+      if (!document.getElementById('tab-logs').classList.contains('hidden')) {
+        fetchLogs();
+      }
+    }, 3000);
+  </script>
+</body>
+</html>

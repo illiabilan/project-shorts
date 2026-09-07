@@ -1,0 +1,135 @@
+# Autonomous YouTube Shorts Pipeline & Web Control Center
+(OpenShorts Engine + Scheduler + Web Dashboard + YouTube Auto-Poster)
+
+Повністю автономний комплекс для автоматичної нарізки 9:16 Shorts з довгоформатних YouTube-відео, керування через інтерактивний веб-інтерфейс та публікації на YouTube Shorts за розкладом.
+
+Оптимізовано для кросплатформеного запуску (Linux ПК / macOS / Docker / Podman) з використанням **Google Gemini 3.1 Flash-Lite** для вірусного аналізу та апаратного прискорення FFmpeg.
+
+---
+
+## 🛠️ Архітектура системи
+
+```
++---------------------------------------------------------------------------------+
+|                       WEB CONTROL CENTER (http://localhost:8080)               |
+|   - Введення YouTube URL (поодиноко або пачками)                                |
+|   - Живий моніторинг стадій та потокові логи планувальника                      |
+|   - Галерея згенерованих 9:16 Shorts із відеоплеєром та публікацією в 1 клік   |
+|   - Керування налаштуваннями (.env), перевірка статусу YouTube авторизації      |
++---------------------------------------------------------------------------------+
+                                      |
+                                      v
++---------------------------------------------------------------------------------+
+|               Safe Atomic Queue (queue.json) & Scheduler (scheduler.py)         |
+|   - Атомарний перезапис (захист від втрати завдань при конкурентному доступі)   |
+|   - Bypass Quality Gate (force_low_quality для безперебійної роботи yt-dlp)     |
+|   - Retry-resilience при опитуванні OpenShorts API                              |
++---------------------------------------------------------------------------------+
+                                      |
+                                      v
++---------------------------------------------------------------------------------+
+|                       OpenShorts Engine (http://localhost:8000)                 |
+|   - Gemini 3.1 Flash-Lite: Детекція вірусних моментів + Hooks + Заголовки       |
+|   - MediaPipe & YOLO: Active Speaker Face Tracking (Track / Split / Screencast) |
+|   - Faster-Whisper: Анімовані субтитри word-by-word                             |
+|   - FFmpeg: Експорт вертикального 1080x1920 відео (CPU або GPU VA-API / NVENC)  |
++---------------------------------------------------------------------------------+
+                                      |
+                                      v
++---------------------------------------------------------------------------------+
+|                YouTube Auto-Poster (automation/poster.py) / Output              |
+|   - Збереження відрендерених кліпів у processed_shorts/                         |
+|   - Автоматичний шедулінг публікації (publishAt) з кроком у N годин             |
++---------------------------------------------------------------------------------+
+```
+
+---
+
+## 🚀 Швидкий запуск
+
+### 1. Налаштування `.env`
+Створіть `.env` файл на основі шаблону:
+```bash
+cp .env.example .env
+```
+Відкрийте `.env` та вкажіть ваш **Gemini API Key** (безкоштовно на [Google AI Studio](https://aistudio.google.com/)):
+```env
+GEMINI_API_KEY=AIzaSy...
+```
+
+### 2. Запуск через Docker або Podman Compose
+```bash
+# Якщо використовуєте Docker:
+docker compose up -d --build
+
+# Якщо використовуєте Podman (наприклад, на Mac або Linux):
+podman-compose up -d --build
+```
+
+Після запуску:
+* 🌐 **Web Dashboard планувальника**: `http://localhost:8080` (додавання посилань, логи, галерея кліпів, налаштування).
+* ⚙️ **OpenShorts API & Dashboard**: `http://localhost:8000`.
+
+---
+
+## 💻 Локальний запуск без контейнерів (Python Standalone)
+
+1. **Встановіть FFmpeg** (якщо ще не встановлено):
+   ```bash
+   # macOS
+   brew install ffmpeg
+
+   # Ubuntu / Debian
+   sudo apt update && sudo apt install -y ffmpeg
+   ```
+
+2. **Запуск OpenShorts Engine:**
+   ```bash
+   cd openshorts-repo
+   pip install -r requirements.txt
+   uvicorn app:app --host 0.0.0.0 --port 8000
+   ```
+
+3. **Запуск Веб-інтерфейсу та Планувальника:**
+   ```bash
+   # У корені проєкту
+   pip install -r automation/requirements.txt
+   python automation/web_ui.py
+   ```
+   Веб-інтерфейс відкриється на `http://localhost:8080`. Планувальник запускається автоматично у фоновому потоці.
+
+---
+
+## 📤 Авторизація для автопостингу на YouTube
+
+Для публікації відео прямо у ваші YouTube Shorts:
+1. Завантажте файл `client_secrets.json` (OAuth 2.0 Client ID, Desktop application) з вашої [Google Cloud Console](https://console.cloud.google.com/).
+2. Покладіть його у папку `credentials/client_secrets.json`.
+3. Для першої генерації токена запустіть авторизацію:
+   ```bash
+   python automation/poster.py processed_shorts/video_test/short_01.mp4 "Тестовий Short" 0
+   ```
+   Браузер відкриє вікно входу Google. Згенерований `token.json` збережеться у `credentials/token.json` і буде підхоплюватися як локально, так і в Docker-контейнері.
+
+---
+
+## 🖥️ Апаратне прискорення на Linux (Ryzen 5600X + RX 7800 XT 16GB VRAM)
+
+### Чи є сенс запускати локальну LLM для нарізки?
+* **Для LLM частини (пошук вірусних моментів)**: **НІ, сенсу мало**.
+  * Відео на 30–60 хвилин генерує транскрипт на 15 000 – 40 000 токенів. Локальна модель на 14B параметрів із таким контекстом заб'є більшу частину VRAM під KV-кеш і буде думати хвилинами.
+  * **Gemini 3.1 Flash-Lite** має вікно у 1 000 000 токенів, аналізує транскрипт за 2–3 секунди, а коштує < $0.001 за відео (плюс величезний безкоштовний ліміт).
+
+### Де 16 ГБ VRAM на RX 7800 XT дають 10x-20x прискорення:
+1. **Whisper ASR (Транскрибування аудіо)**:
+   На CPU Ryzen 5600X транскрибування годинного відео триває ~8–12 хвилин. Запуск Whisper (`large-v3-turbo`) через ROCm на RX 7800 XT займає лише **20–30 секунд** і потребує лише 3–4 ГБ VRAM!
+2. **FFmpeg VA-API Hardware Encoding**:
+   Встановіть у `.env`:
+   ```env
+   FFMPEG_ENCODER=vaapi
+   ```
+   Відеокарта кодує вертикальне 1080x1920 відео за кілька секунд із нульовим навантаженням на процесор.
+3. **Face Tracking (MediaPipe / YOLOv8)**:
+   Прискорення трекінгу облич для розумного кадрування 9:16 на GPU.
+
+> **Висновок**: Найефективніший гібридний сетап — залишити «мозок» (пошук вірусних моментів) хмарній Gemini 3.1 Flash-Lite, а важку графічну й аудіо-роботу (Whisper + FFmpeg + Face Tracking) передати на RX 7800 XT.
