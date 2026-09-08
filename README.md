@@ -91,31 +91,27 @@ podman-compose up -d --build
 
 ---
 
-## 💻 Локальний запуск без контейнерів (Python Standalone)
+## 💻 Локальний запуск на Linux / macOS (В 1 команду)
 
-1. **Встановіть FFmpeg** (якщо ще не встановлено):
+1. **Встановлення та налаштування оточення**:
    ```bash
-   # macOS
-   brew install ffmpeg
-
-   # Ubuntu / Debian
-   sudo apt update && sudo apt install -y ffmpeg
+   ./setup.sh
    ```
+   Скрипт автоматично підготує віртуальне оточення Python 3.11 через `uv`, завантажить усі ШІ-залежності, перевірить FFmpeg та налаштує конфігураційні файли.
 
-2. **Запуск OpenShorts Engine:**
+2. **Запуск усього комплексу**:
    ```bash
-   cd openshorts-repo
-   pip install -r requirements.txt
-   uvicorn app:app --host 0.0.0.0 --port 8000
+   ./start.sh
+   # або
+   python3 run_all.py
    ```
+   Скрипт синхронно підніме рушій OpenShorts (порт 8000), планувальник черги і веб-інтерфейс (порт 8080), а також відкриє панель у браузері.
 
-3. **Запуск Веб-інтерфейсу та Планувальника:**
+3. **Зупинка**:
+   Натисніть `Ctrl + C` або виконайте:
    ```bash
-   # У корені проєкту
-   pip install -r automation/requirements.txt
-   python automation/web_ui.py
+   ./stop.sh
    ```
-   Веб-інтерфейс відкриється на `http://localhost:8080`. Планувальник запускається автоматично у фоновому потоці.
 
 ---
 
@@ -126,9 +122,15 @@ podman-compose up -d --build
 2. Покладіть його у папку `credentials/client_secrets.json`.
 3. Для першої генерації токена запустіть авторизацію:
    ```bash
-   python automation/poster.py processed_shorts/video_test/short_01.mp4 "Тестовий Short" 0
+   # Спосіб 1: Скриптом авторизації
+   ./auth_youtube.sh
+
+   # Спосіб 2: Через Python
+   .venv/bin/python automation/poster.py --auth
+   # або
+   .venv/bin/python automation/poster.py processed_shorts/video_test/short_01.mp4 "Тестовий Short" 0
    ```
-   Браузер відкриє вікно входу Google. Згенерований `token.json` збережеться у `credentials/token.json` і буде підхоплюватися як локально, так і в Docker-контейнері.
+   Браузер відкриє вікно входу Google. Згенерований `token.json` збережеться у `credentials/token.json` і статус акаунта автоматично оновиться в системі.
 
 ---
 

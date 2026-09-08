@@ -54,6 +54,7 @@ from scheduler import (
 
 from poster import (
     check_youtube_auth_status,
+    get_youtube_service,
     upload_short_to_youtube,
     resolve_credentials_paths,
     test_account_connection,
@@ -140,6 +141,13 @@ class SettingsUpdateRequest(BaseModel):
     ffmpeg_encoder: Optional[str] = None
     whisper_model: Optional[str] = None
     whisper_device: Optional[str] = None
+    whisper_compute: Optional[str] = None
+    clip_min_seconds: Optional[float] = None
+    clip_max_seconds: Optional[float] = None
+    auto_hook: Optional[bool] = None
+    auto_hook_mode: Optional[str] = None
+    auto_hook_seconds: Optional[float] = None
+    auto_hook_style: Optional[str] = None
 
 class TestLLMRequest(BaseModel):
     provider: str
@@ -508,6 +516,39 @@ def test_account(payload: AccountTestRequest):
             update_account_status(payload.id, "error", str(e))
         return {"status": "error", "success": False, "message": f"Помилка тестування: {e}"}
 
+@app.post("/api/accounts/{account_id}/auth")
+def trigger_account_auth(account_id: str, background_tasks: BackgroundTasks):
+    """Triggers interactive OAuth authorization flow on host machine."""
+    acc = get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    platform = acc.get("platform", "").lower()
+    if platform != "youtube":
+        raise HTTPException(status_code=400, detail="OAuth авторизація підтримується для YouTube.")
+
+    creds = acc.get("credentials", {})
+    secrets_path, token_path = resolve_credentials_paths(
+        creds.get("client_secrets_file"),
+        creds.get("token_file")
+    )
+    if not secrets_path.is_file():
+        raise HTTPException(status_code=400, detail=f"Файл секретів {secrets_path} не знайдено.")
+
+    def _do_auth():
+        try:
+            yt = get_youtube_service(str(secrets_path), str(token_path))
+            ch = yt.channels().list(part="snippet", mine=True).execute()
+            items = ch.get("items", [])
+            ch_title = items[0]["snippet"]["title"] if items else "YouTube Channel"
+            update_account_status(account_id, "ready", f"Авторизовано канал: {ch_title}")
+        except Exception as e:
+            logger.exception(f"Error during YouTube authorization for {account_id}")
+            update_account_status(account_id, "error", f"Помилка авторизації: {e}")
+
+    background_tasks.add_task(_do_auth)
+    return {"status": "started", "message": "Вікно авторизації Google відкрито у вашому браузері. Підтвердьте доступ до каналу."}
+
 @app.get("/api/settings")
 def get_settings():
     """Returns current environment configurations (masking secret keys) and provider metadata."""
@@ -521,8 +562,8 @@ def get_settings():
     providers_config = {
         "gemini": {
             "name": "Google AI Studio (Gemini)",
-            "models": ["gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-3.7-flash", "gemini-2.5-pro"],
-            "default_model": "gemini-3.1-flash-lite",
+            "models": ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-3.7-flash", "gemini-2.5-pro"],
+            "default_model": "gemini-3.6-flash",
             "default_base_url": "",
             "key_hint": "Отримати безкоштовно на aistudio.google.com",
             "key_link": "https://aistudio.google.com/",
@@ -611,13 +652,20 @@ def get_settings():
         "active_key_set": active_key_set,
         "gemini_api_key_masked": masked_gemini_key,
         "gemini_api_key_set": bool(gemini_key and gemini_key != "your_gemini_api_key_here"),
-        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+        "gemini_model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
+        "clip_min_seconds": float(os.getenv("CLIP_MIN_SECONDS", "20.0")),
+        "clip_max_seconds": float(os.getenv("CLIP_MAX_SECONDS", "180.0")),
         "auto_post": os.getenv("AUTO_POST", "false").lower() in ("1", "true", "yes"),
         "auto_post_interval_hours": float(os.getenv("AUTO_POST_INTERVAL_HOURS", "3.0")),
         "poll_interval_sec": int(os.getenv("POLL_INTERVAL_SEC", "30")),
         "ffmpeg_encoder": os.getenv("FFMPEG_ENCODER", "x264"),
         "whisper_model": os.getenv("WHISPER_MODEL", "small"),
         "whisper_device": os.getenv("WHISPER_DEVICE", "cpu"),
+        "whisper_compute": os.getenv("WHISPER_COMPUTE", "int8"),
+        "auto_hook": os.getenv("AUTO_HOOK", "1").lower() in ("1", "true", "yes"),
+        "auto_hook_mode": os.getenv("AUTO_HOOK_MODE", "intro"),
+        "auto_hook_seconds": float(os.getenv("AUTO_HOOK_SECONDS", "1.8")),
+        "auto_hook_style": os.getenv("AUTO_HOOK_STYLE", "classic"),
         "openshorts_api_url": OPENSHORTS_API_URL,
         "providers_config": providers_config
     }
@@ -703,6 +751,41 @@ def update_settings(payload: SettingsUpdateRequest):
         val = payload.whisper_device.strip()
         env_map["WHISPER_DEVICE"] = val
         os.environ["WHISPER_DEVICE"] = val
+
+    if payload.whisper_compute is not None:
+        val = payload.whisper_compute.strip()
+        env_map["WHISPER_COMPUTE"] = val
+        os.environ["WHISPER_COMPUTE"] = val
+
+    if payload.clip_min_seconds is not None:
+        val = str(payload.clip_min_seconds)
+        env_map["CLIP_MIN_SECONDS"] = val
+        os.environ["CLIP_MIN_SECONDS"] = val
+
+    if payload.clip_max_seconds is not None:
+        val = str(payload.clip_max_seconds)
+        env_map["CLIP_MAX_SECONDS"] = val
+        os.environ["CLIP_MAX_SECONDS"] = val
+
+    if payload.auto_hook is not None:
+        val = "1" if payload.auto_hook else "0"
+        env_map["AUTO_HOOK"] = val
+        os.environ["AUTO_HOOK"] = val
+
+    if payload.auto_hook_mode is not None:
+        val = payload.auto_hook_mode.strip()
+        env_map["AUTO_HOOK_MODE"] = val
+        os.environ["AUTO_HOOK_MODE"] = val
+
+    if payload.auto_hook_seconds is not None:
+        val = str(payload.auto_hook_seconds)
+        env_map["AUTO_HOOK_SECONDS"] = val
+        os.environ["AUTO_HOOK_SECONDS"] = val
+
+    if payload.auto_hook_style is not None:
+        val = payload.auto_hook_style.strip()
+        env_map["AUTO_HOOK_STYLE"] = val
+        os.environ["AUTO_HOOK_STYLE"] = val
 
     new_content = "\n".join(f"{k}={v}" for k, v in env_map.items()) + "\n"
     env_file.write_text(new_content, encoding="utf-8")

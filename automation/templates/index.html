@@ -629,20 +629,39 @@
               </h4>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">FFmpeg Video Encoder</label>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">FFmpeg Video Encoder (Апаратне прискорення)</label>
                   <select id="cfg-ffmpeg" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
-                    <option value="x264">x264 (Універсальний CPU Linux/Mac/Windows)</option>
-                    <option value="nvenc">NVENC (NVIDIA GeForce GPU апаратне прискорення)</option>
-                    <option value="vaapi">VA-API (AMD Radeon GPU під Linux)</option>
+                    <option value="auto">Auto (Авто-вибір: NVENC → VA-API → x264)</option>
+                    <option value="vaapi">VA-API (AMD Radeon RX / Intel GPU — апаратний VCN 14x)</option>
+                    <option value="nvenc">NVENC (NVIDIA GeForce GPU — апаратний NVENC)</option>
+                    <option value="x264">x264 (CPU процесор — універсальний сумісний режим)</option>
                   </select>
                 </div>
 
                 <div>
                   <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Whisper модель (Субтитри)</label>
                   <select id="cfg-whisper-model" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
-                    <option value="small">small (Оптимально на CPU)</option>
+                    <option value="small">small (Оптимально за швидкістю та якістю)</option>
                     <option value="base">base (Найшвидша)</option>
-                    <option value="large-v3-turbo">large-v3-turbo (Для потужного GPU)</option>
+                    <option value="large-v3-turbo">large-v3-turbo (Максимальна якість)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Whisper Пристрій (Device)</label>
+                  <select id="cfg-whisper-device" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                    <option value="auto">Auto (Автоматичний вибір CUDA GPU або CPU)</option>
+                    <option value="cpu">CPU (Швидкий мультипотоковий CPU x86 AVX2/AVX-512)</option>
+                    <option value="cuda">GPU NVIDIA CUDA (Прискорення cuBLAS/cuDNN)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Whisper Точність (Compute Type)</label>
+                  <select id="cfg-whisper-compute" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                    <option value="int8">int8 (Швидко / Мінімальне навантаження)</option>
+                    <option value="float16">float16 (Для потужних відеокарт)</option>
+                    <option value="default">default (Стандартно)</option>
                   </select>
                 </div>
 
@@ -654,6 +673,51 @@
                 <div>
                   <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Частота перевірки черги (секунд)</label>
                   <input type="number" id="cfg-poll-interval" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Мін. тривалість кліпу (секунд)</label>
+                  <input type="number" min="5" max="175" id="cfg-clip-min" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Макс. тривалість кліпу (секунд, до 180)</label>
+                  <input type="number" min="10" max="180" id="cfg-clip-max" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                </div>
+              </div>
+            </div>
+
+            <!-- Hook Intro & Visual Branding Card -->
+            <div class="bg-m3-surface-container border border-m3-outline-variant/30 rounded-2xl p-5 space-y-4 shadow-xs">
+              <h4 class="text-xs font-semibold text-m3-on-surface uppercase tracking-wider border-b border-m3-outline-variant/20 pb-2 flex items-center gap-1.5">
+                <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                <span>Хук-заставка на початку відео (Hook Intro Card)</span>
+              </h4>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Режим хука</label>
+                  <select id="cfg-auto-hook-mode" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                    <option value="intro">Заставка з заблюреним фоном (Варіант 2 — 1.8с)</option>
+                    <option value="overlay">Оверлей плашка зверху під час відео (5с)</option>
+                    <option value="off">Вимкнено (Без хука)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Візуальний стиль хука</label>
+                  <select id="cfg-auto-hook-style" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
+                    <option value="classic">Classic (Біла плашка з чорним шрифтом)</option>
+                    <option value="dark">Dark (Темна матова напівпрозора плашка)</option>
+                    <option value="yellow">Yellow (Яскраво-жовта плашка)</option>
+                    <option value="red">Red (Червона плашка з білим текстом)</option>
+                    <option value="outline">Outline (Великий білий текст із чорним контуром)</option>
+                    <option value="outline_yellow">Outline Yellow (Жовтий текст із чорним контуром)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-m3-on-surface-variant mb-1">Тривалість заставки (секунд)</label>
+                  <input type="number" step="0.1" min="0.5" max="5.0" id="cfg-auto-hook-seconds" value="1.8" class="w-full bg-m3-surface-container-lowest border border-m3-outline-variant/40 rounded-xl px-3 py-2 text-xs text-m3-on-surface focus:outline-none focus:border-m3-primary transition">
                 </div>
               </div>
             </div>
@@ -1513,6 +1577,12 @@
               </label>
 
               <div class="flex items-center space-x-1.5">
+                ${(acc.platform === 'youtube' && !isReady) ? `
+                <button type="button" onclick="authorizeAccount('${acc.id}')" title="Авторизувати Google акаунт" class="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold flex items-center space-x-1.5 transition cursor-pointer shadow-sm animate-pulse">
+                  <i class="fa-solid fa-key text-[10px]"></i>
+                  <span>Авторизувати</span>
+                </button>
+                ` : ''}
                 <button type="button" onclick="testAccount('${acc.id}')" title="Перевірити з'єднання" class="w-7 h-7 rounded-lg bg-m3-surface-container-high hover:bg-m3-surface-container-highest text-m3-on-surface flex items-center justify-center transition cursor-pointer md3-state-layer">
                   <i class="fa-solid fa-bolt text-amber-500 dark:text-amber-400 text-[11px]"></i>
                 </button>
@@ -1725,6 +1795,27 @@
         fetchAccounts();
       } catch (e) {
         alert('Помилка видалення: ' + e);
+      }
+    }
+
+    async function authorizeAccount(id) {
+      alert("Зараз у вашому браузері відкриється сторінка авторизації Google OAuth 2.0.\n\nБудь ласка, увійдіть у ваш Google акаунт (YouTube-канал) та підтвердьте доступ.");
+      try {
+        const res = await fetch(`/api/accounts/${id}/auth`, { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || "Авторизацію запущено.");
+        // Poll status every few seconds
+        let checks = 0;
+        const interval = setInterval(async () => {
+          checks++;
+          await fetchAccounts();
+          const target = allAccounts.find(a => a.id === id);
+          if (target && (target.status?.status === 'ready' || target.status?.status === 'authenticated' || checks >= 15)) {
+            clearInterval(interval);
+          }
+        }, 3000);
+      } catch (e) {
+        alert("Помилка зв'язку з сервером: " + e);
       }
     }
 
@@ -2296,8 +2387,31 @@
 
         document.getElementById('cfg-ffmpeg').value = data.ffmpeg_encoder || 'x264';
         document.getElementById('cfg-whisper-model').value = data.whisper_model || 'small';
+        if (document.getElementById('cfg-whisper-device')) {
+          document.getElementById('cfg-whisper-device').value = data.whisper_device || 'cpu';
+        }
+        if (document.getElementById('cfg-whisper-compute')) {
+          document.getElementById('cfg-whisper-compute').value = data.whisper_compute || 'int8';
+        }
         document.getElementById('cfg-post-interval').value = data.auto_post_interval_hours || 3.0;
         document.getElementById('cfg-poll-interval').value = data.poll_interval_sec || 30;
+        if (document.getElementById('cfg-clip-min')) {
+          document.getElementById('cfg-clip-min').value = data.clip_min_seconds || 20.0;
+        }
+        if (document.getElementById('cfg-clip-max')) {
+          document.getElementById('cfg-clip-max').value = data.clip_max_seconds || 180.0;
+        }
+
+        if (document.getElementById('cfg-auto-hook-mode')) {
+          const hookMode = (data.auto_hook === false) ? 'off' : (data.auto_hook_mode || 'intro');
+          document.getElementById('cfg-auto-hook-mode').value = hookMode;
+        }
+        if (document.getElementById('cfg-auto-hook-style')) {
+          document.getElementById('cfg-auto-hook-style').value = data.auto_hook_style || 'classic';
+        }
+        if (document.getElementById('cfg-auto-hook-seconds')) {
+          document.getElementById('cfg-auto-hook-seconds').value = (data.auto_hook_seconds !== undefined) ? data.auto_hook_seconds : 1.8;
+        }
 
       } catch (e) {
         console.error("Error fetching settings:", e);
@@ -2317,9 +2431,25 @@
         llm_base_url: baseUrl || null,
         ffmpeg_encoder: document.getElementById('cfg-ffmpeg').value,
         whisper_model: document.getElementById('cfg-whisper-model').value,
+        whisper_device: document.getElementById('cfg-whisper-device') ? document.getElementById('cfg-whisper-device').value : 'cpu',
+        whisper_compute: document.getElementById('cfg-whisper-compute') ? document.getElementById('cfg-whisper-compute').value : 'int8',
         auto_post_interval_hours: parseFloat(document.getElementById('cfg-post-interval').value),
-        poll_interval_sec: parseInt(document.getElementById('cfg-poll-interval').value)
+        poll_interval_sec: parseInt(document.getElementById('cfg-poll-interval').value),
+        clip_min_seconds: document.getElementById('cfg-clip-min') ? parseFloat(document.getElementById('cfg-clip-min').value) : 20.0,
+        clip_max_seconds: document.getElementById('cfg-clip-max') ? parseFloat(document.getElementById('cfg-clip-max').value) : 180.0
       };
+
+      if (document.getElementById('cfg-auto-hook-mode')) {
+        const hookModeVal = document.getElementById('cfg-auto-hook-mode').value;
+        payload.auto_hook = (hookModeVal !== 'off');
+        payload.auto_hook_mode = (hookModeVal === 'off' ? 'intro' : hookModeVal);
+      }
+      if (document.getElementById('cfg-auto-hook-style')) {
+        payload.auto_hook_style = document.getElementById('cfg-auto-hook-style').value;
+      }
+      if (document.getElementById('cfg-auto-hook-seconds')) {
+        payload.auto_hook_seconds = parseFloat(document.getElementById('cfg-auto-hook-seconds').value) || 1.8;
+      }
 
       if (apiKey) {
         payload.llm_api_key = apiKey;

@@ -54,31 +54,36 @@ YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly"
 ]
 
-# ---------------------------------------------------------------------------
-# Helpers & Credential Resolvers
-# ---------------------------------------------------------------------------
+# Project paths
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent
+CREDENTIALS_DIR = PROJECT_ROOT / "credentials"
 
 def resolve_credentials_paths(client_secrets_path: str = None, token_path: str = None):
     """Finds existing client_secrets.json and token.json paths across project directory."""
-    if not client_secrets_path:
+    if not client_secrets_path or "..." in str(client_secrets_path) or not Path(client_secrets_path).is_file():
         env_secrets = os.getenv("YOUTUBE_CLIENT_SECRETS")
         candidates = [
-            env_secrets,
-            "credentials/client_secrets.json",
-            "client_secrets.json"
+            Path(env_secrets) if env_secrets else None,
+            CREDENTIALS_DIR / "client_secrets.json",
+            PROJECT_ROOT / "client_secrets.json",
+            Path("credentials/client_secrets.json"),
+            Path("client_secrets.json")
         ]
-        client_secrets_path = next((c for c in candidates if c and Path(c).is_file()), "credentials/client_secrets.json")
+        client_secrets_path = next((c for c in candidates if c and c.is_file()), CREDENTIALS_DIR / "client_secrets.json")
 
-    if not token_path:
+    if not token_path or "..." in str(token_path) or not Path(token_path).is_file():
         env_token = os.getenv("YOUTUBE_TOKEN_FILE")
         candidates = [
-            env_token,
-            "credentials/token.json",
-            "token.json"
+            Path(env_token) if env_token else None,
+            CREDENTIALS_DIR / "token.json",
+            PROJECT_ROOT / "token.json",
+            Path("credentials/token.json"),
+            Path("token.json")
         ]
-        token_path = next((c for c in candidates if c and Path(c).is_file()), "credentials/token.json")
+        token_path = next((c for c in candidates if c and c.is_file()), CREDENTIALS_DIR / "token.json")
 
-    return Path(client_secrets_path), Path(token_path)
+    return Path(client_secrets_path).resolve(), Path(token_path).resolve()
 
 # ---------------------------------------------------------------------------
 # YouTube Poster & Checker
@@ -785,4 +790,105 @@ def post_clip_to_account(
     return res
 
 if __name__ == "__main__":
-    print("Multi-Platform Poster Engine loaded successfully.")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    args = sys.argv[1:]
+
+    # If --auth passed, or no args passed: run authorization
+    if not args or args[0] in ("--auth", "auth", "-a"):
+        print("=" * 64)
+        print("   🔐 YOUTUBE OAUTH 2.0 АВТОРИЗАЦІЯ")
+        print("=" * 64)
+        secrets_path, token_path = resolve_credentials_paths()
+        print(f"[*] Перевірка файлу секретів: {secrets_path}")
+        if not secrets_path.is_file():
+            print(f"\n[X] Помилка: Файл клієнтських секретів не знайдено!")
+            print(f"    Очікуваний шлях: {secrets_path}")
+            print("    Будь ласка, завантажте OAuth 2.0 Client ID (Desktop application)")
+            print("    з Google Cloud Console та покладіть у папку 'credentials/client_secrets.json'.")
+            sys.exit(1)
+
+        status = check_youtube_auth_status(str(secrets_path), str(token_path))
+        if status.get("status") == "authenticated" and "--force" not in args:
+            print(f"✓ Вже авторизовано: {status.get('message')}")
+            print(f"  Файл токена: {token_path}")
+            print("  (Для повторної авторизації додайте прапорець --force)")
+            sys.exit(0)
+
+        print("\n[*] Запуск Google OAuth 2.0 авторизації...")
+        print("    Зараз відкриється вікно браузера для входу Google.")
+        print("    Оберіть акаунт вашого YouTube-каналу та підтвердьте доступ.\n")
+        try:
+            yt = get_youtube_service(str(secrets_path), str(token_path))
+            ch = yt.channels().list(part="snippet", mine=True).execute()
+            items = ch.get("items", [])
+            ch_title = items[0]["snippet"]["title"] if items else "YouTube Channel"
+            print("=" * 64)
+            print(f"✅ УСПІШНО АВТОРИЗОВАНО КАНАЛ: {ch_title}")
+            print(f"   Файл токена збережено: {token_path}")
+            print("=" * 64)
+
+            # Sync with accounts.json if possible
+            try:
+                from accounts import update_account_status
+                update_account_status("yt_default", "ready", f"Авторизовано канал: {ch_title}")
+            except Exception:
+                pass
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n[X] Помилка авторизації: {e}")
+            sys.exit(1)
+
+    # If arguments provided: handle video posting or status check
+    video_path = args[0]
+    title = args[1] if len(args) > 1 else "Тестовий Short"
+    hours_delay = float(args[2]) if len(args) > 2 else 0.0
+
+    print("=" * 64)
+    print("   🎬 YOUTUBE SHORTS ПУБЛІКАЦІЯ ТА АВТОРИЗАЦІЯ")
+    print("=" * 64)
+    print(f"[*] Цільовий файл: {video_path}")
+    print(f"[*] Заголовок: {title}")
+    if hours_delay > 0:
+        print(f"[*] Заплановано через: {hours_delay} год.")
+
+    secrets_path, token_path = resolve_credentials_paths()
+    if not secrets_path.is_file():
+        print(f"\n[X] Помилка: Не знайдено {secrets_path}")
+        sys.exit(1)
+
+    # First ensure authentication is active (starts browser if token is missing)
+    print("\n[*] Перевірка підключення до YouTube API...")
+    try:
+        yt = get_youtube_service(str(secrets_path), str(token_path))
+        ch = yt.channels().list(part="snippet", mine=True).execute()
+        items = ch.get("items", [])
+        ch_title = items[0]["snippet"]["title"] if items else "YouTube Channel"
+        print(f"✓ Авторизація активна! Канал: {ch_title}")
+    except Exception as e:
+        print(f"[X] Помилка авторизації: {e}")
+        sys.exit(1)
+
+    if not Path(video_path).is_file():
+        print(f"\n[i] Інформаційне повідомлення:")
+        print(f"    Файл '{video_path}' відсутній на диску (використовувався тестовий шлях).")
+        print(f"    Але YouTube авторизація пройшла успішно та готова до роботи!")
+        print(f"    Токен збережено у {token_path}.")
+        sys.exit(0)
+
+    sched_time = datetime.now(timezone.utc) + timedelta(hours=hours_delay) if hours_delay > 0 else None
+    try:
+        res = upload_short_to_youtube(
+            video_file_path=video_path,
+            title=title,
+            scheduled_publish_time=sched_time,
+            client_secrets_file=str(secrets_path),
+            token_file=str(token_path)
+        )
+        print("=" * 64)
+        print("✅ Відео успішно завантажено на YouTube!")
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        print("=" * 64)
+    except Exception as e:
+        print(f"\n[X] Помилка публікації: {e}")
+        sys.exit(1)

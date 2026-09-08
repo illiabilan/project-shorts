@@ -103,6 +103,18 @@ def wait_for_service(port: int, name: str, timeout_sec: int = 30) -> bool:
     return False
 
 def main():
+    # If a local .venv exists and we are not currently running within it, re-exec with venv python
+    venv_python = (
+        PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else PROJECT_ROOT / ".venv" / "bin" / "python"
+    )
+    if venv_python.exists() and Path(sys.executable).resolve() != venv_python.resolve():
+        try:
+            os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+        except Exception:
+            pass
+
     print_banner()
 
     # Verify python executable
@@ -128,13 +140,14 @@ def main():
     openshorts_env = os.environ.copy()
     openshorts_env["PYTHONIOENCODING"] = "utf-8"
     
-    # Run uvicorn app:app inside openshorts-repo
+    # Run uvicorn app:app inside openshorts-repo, routing stdout/stderr to openshorts.log
+    engine_log_file = open(PROJECT_ROOT / "openshorts.log", "a", encoding="utf-8")
     p_engine = subprocess.Popen(
         [python_exe, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8000"],
         cwd=str(OPENSHORTS_DIR),
         env=openshorts_env,
-        stdout=subprocess.DEVNULL,  # Keep console clean; logs viewable in UI
-        stderr=subprocess.DEVNULL
+        stdout=engine_log_file,
+        stderr=engine_log_file
     )
     PROCESSES.append(p_engine)
 

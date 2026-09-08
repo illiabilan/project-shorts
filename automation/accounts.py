@@ -8,12 +8,15 @@ Stores configuration safely in credentials/accounts.json.
 import os
 import json
 import time
+import uuid
+import threading
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 
 logger = logging.getLogger("AccountsManager")
+_ACCOUNTS_LOCK = threading.RLock()
 
 # Project paths
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -72,7 +75,9 @@ def mask_account_secrets(account: Dict[str, Any]) -> Dict[str, Any]:
     platform = acc.get("platform", "").lower()
     for key, val in creds.items():
         if isinstance(val, str):
-            if "key" in key.lower() or "secret" in key.lower() or "token" in key.lower() or "password" in key.lower():
+            if key.endswith("_file") or key.endswith("_path") or key == "client_secrets_file" or key == "token_file":
+                masked_creds[key] = val
+            elif "key" in key.lower() or "secret" in key.lower() or "token" in key.lower() or "password" in key.lower():
                 masked_creds[key] = mask_string(val)
                 masked_creds[f"{key}_set"] = bool(val)
             else:
@@ -85,53 +90,55 @@ def mask_account_secrets(account: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_accounts_raw() -> List[Dict[str, Any]]:
     """Loads raw accounts list from JSON storage with fallback migration."""
-    if not ACCOUNTS_FILE.exists():
-        initial = []
-        # Check if legacy credentials/client_secrets.json exists
-        legacy_secrets = CREDENTIALS_DIR / "client_secrets.json"
-        legacy_token = CREDENTIALS_DIR / "token.json"
-        if legacy_secrets.exists() or legacy_token.exists():
-            initial.append({
-                "id": "yt_default",
-                "platform": "youtube",
-                "name": "YouTube (За замовчуванням)",
-                "enabled": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "credentials": {
-                    "client_secrets_file": str(legacy_secrets),
-                    "token_file": str(legacy_token),
-                    "privacy_status": "public",
-                    "category_id": "22",
-                    "made_for_kids": False
-                },
-                "settings": {
-                    "default_tags": ["#Shorts", "#ViralShorts", "#AI"]
-                },
-                "status": {
-                    "status": "ready" if legacy_token.exists() else "ready_to_auth",
-                    "message": "Знайдено збережені файли YouTube авторизації"
-                }
-            })
-        save_accounts_raw(initial)
-        return initial
+    with _ACCOUNTS_LOCK:
+        if not ACCOUNTS_FILE.exists():
+            initial = []
+            # Check if legacy credentials/client_secrets.json exists
+            legacy_secrets = CREDENTIALS_DIR / "client_secrets.json"
+            legacy_token = CREDENTIALS_DIR / "token.json"
+            if legacy_secrets.exists() or legacy_token.exists():
+                initial.append({
+                    "id": "yt_default",
+                    "platform": "youtube",
+                    "name": "YouTube (За замовчуванням)",
+                    "enabled": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "credentials": {
+                        "client_secrets_file": str(legacy_secrets),
+                        "token_file": str(legacy_token),
+                        "privacy_status": "public",
+                        "category_id": "22",
+                        "made_for_kids": False
+                    },
+                    "settings": {
+                        "default_tags": ["#Shorts", "#ViralShorts", "#AI"]
+                    },
+                    "status": {
+                        "status": "ready" if legacy_token.exists() else "ready_to_auth",
+                        "message": "Знайдено збережені файли YouTube авторизації"
+                    }
+                })
+            save_accounts_raw(initial)
+            return initial
 
-    try:
-        data = json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict) and "accounts" in data:
-            return data["accounts"]
-        return []
-    except Exception as e:
-        logger.error(f"Error loading accounts file {ACCOUNTS_FILE}: {e}")
-        return []
+        try:
+            data = json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict) and "accounts" in data:
+                return data["accounts"]
+            return []
+        except Exception as e:
+            logger.error(f"Error loading accounts file {ACCOUNTS_FILE}: {e}")
+            return []
 
 def save_accounts_raw(accounts: List[Dict[str, Any]]) -> None:
     """Atomically writes accounts list to storage."""
-    ACCOUNTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp_file = ACCOUNTS_FILE.with_suffix(".tmp")
-    tmp_file.write_text(json.dumps(accounts, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp_file.replace(ACCOUNTS_FILE)
+    with _ACCOUNTS_LOCK:
+        ACCOUNTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = ACCOUNTS_FILE.with_name(f"accounts.{uuid.uuid4().hex}.tmp")
+        tmp_file.write_text(json.dumps(accounts, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_file.replace(ACCOUNTS_FILE)
 
 def get_account(account_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves full unmasked account by ID."""
@@ -174,7 +181,7 @@ def upsert_account(data: Dict[str, Any]) -> Dict[str, Any]:
     if existing_acc:
         merged_creds = dict(existing_acc.get("credentials", {}))
         for k, v in new_creds.items():
-            if v is not None and v != "" and not (isinstance(v, str) and v.startswith("***")):
+            if v is not None and v != "" and not (isinstance(v, str) and ("..." in v or v.startswith("***"))):
                 merged_creds[k] = v
         final_creds = merged_creds
     else:

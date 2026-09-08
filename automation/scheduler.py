@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import json
+import shutil
 import logging
 import collections
 import urllib.request
@@ -173,9 +174,30 @@ def submit_video_job(youtube_url, options=None):
     }
 
     # Optional parameters pass-through
-    for opt in ("target_clips", "clip_min_seconds", "clip_max_seconds", "captions", "auto_hook", "auto_hook_style"):
+    for opt in ("target_clips", "clip_min_seconds", "clip_max_seconds", "captions", "auto_hook", "auto_hook_mode", "auto_hook_seconds", "auto_hook_style"):
         if opt in options:
             body[opt] = options[opt]
+
+    if "clip_min_seconds" not in body and os.getenv("CLIP_MIN_SECONDS"):
+        body["clip_min_seconds"] = os.getenv("CLIP_MIN_SECONDS")
+    if "clip_max_seconds" not in body and os.getenv("CLIP_MAX_SECONDS"):
+        body["clip_max_seconds"] = os.getenv("CLIP_MAX_SECONDS")
+    if "auto_hook" not in body and os.getenv("AUTO_HOOK"):
+        body["auto_hook"] = os.getenv("AUTO_HOOK")
+    if "auto_hook_mode" not in body and os.getenv("AUTO_HOOK_MODE"):
+        body["auto_hook_mode"] = os.getenv("AUTO_HOOK_MODE")
+    if "auto_hook_seconds" not in body and os.getenv("AUTO_HOOK_SECONDS"):
+        body["auto_hook_seconds"] = os.getenv("AUTO_HOOK_SECONDS")
+    if "auto_hook_style" not in body and os.getenv("AUTO_HOOK_STYLE"):
+        body["auto_hook_style"] = os.getenv("AUTO_HOOK_STYLE")
+    if os.getenv("FFMPEG_ENCODER"):
+        body["ffmpeg_encoder"] = os.getenv("FFMPEG_ENCODER")
+    if os.getenv("WHISPER_MODEL"):
+        body["whisper_model"] = os.getenv("WHISPER_MODEL")
+    if os.getenv("WHISPER_DEVICE"):
+        body["whisper_device"] = os.getenv("WHISPER_DEVICE")
+    if os.getenv("WHISPER_COMPUTE"):
+        body["whisper_compute"] = os.getenv("WHISPER_COMPUTE")
 
     logger.info(f"Submitting video to OpenShorts: {youtube_url} (layouts: {body['layouts']})")
     status, res = api_request("POST", "/api/process", body)
@@ -264,6 +286,10 @@ def monitor_job(job_id):
 
 def run_pipeline_step():
     """Main single iteration step of the autonomous loop (concurrency-safe)."""
+    try:
+        load_dotenv(override=True)
+    except Exception:
+        pass
     CURRENT_STATE["last_poll_time"] = datetime.now(timezone.utc).isoformat()
     queue = load_queue()
     if not queue.get("pending"):
