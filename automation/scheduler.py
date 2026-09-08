@@ -63,15 +63,30 @@ AUTO_POST_INTERVAL_HOURS = float(os.getenv("AUTO_POST_INTERVAL_HOURS", "3"))
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Try importing auto-poster
+# Try importing auto-poster & accounts
 try:
-    from automation.poster import upload_short_to_youtube, check_youtube_auth_status
+    from automation.poster import (
+        upload_short_to_youtube,
+        check_youtube_auth_status,
+        post_clip_to_account,
+        test_account_connection
+    )
+    from automation.accounts import get_account, load_accounts_raw
 except ImportError:
     try:
-        from poster import upload_short_to_youtube, check_youtube_auth_status
+        from poster import (
+            upload_short_to_youtube,
+            check_youtube_auth_status,
+            post_clip_to_account,
+            test_account_connection
+        )
+        from accounts import get_account, load_accounts_raw
     except ImportError:
         upload_short_to_youtube = None
         check_youtube_auth_status = None
+        post_clip_to_account = None
+        get_account = None
+        load_accounts_raw = None
 
 # Current status state for Web UI
 CURRENT_STATE = {
@@ -328,33 +343,102 @@ def run_pipeline_step():
         item["clips"] = downloaded_clips
         item["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Handle Auto-Posting if requested
+        # Handle Auto-Posting across configured target accounts (YouTube, TikTok, Instagram, X)
         options = item.get("options") or {}
-        auto_post = options.get("auto_post", AUTO_POST_GLOBAL)
-        if auto_post and upload_short_to_youtube:
+        target_account_ids = options.get("target_accounts") or []
+        auto_post = bool(options.get("auto_post", AUTO_POST_GLOBAL)) or bool(target_account_ids)
+
+        if auto_post:
             CURRENT_STATE["current_stage"] = "auto_posting"
-            logger.info(f"Auto-posting {len(downloaded_clips)} clips to YouTube...")
             stagger_hours = float(options.get("schedule_interval_hours", AUTO_POST_INTERVAL_HOURS))
             initial_delay = float(options.get("schedule_delay_hours", 1.0))
 
-            for idx, clip_info in enumerate(downloaded_clips):
-                try:
+            target_accounts = []
+            if get_account and target_account_ids:
+                for aid in target_account_ids:
+                    acc = get_account(aid)
+                    if acc and acc.get("enabled", True):
+                        target_accounts.append(acc)
+
+            # Fallback to all enabled accounts if auto_post requested without specific account list
+            if not target_accounts and load_accounts_raw:
+                target_accounts = [a for a in load_accounts_raw() if a.get("enabled", True)]
+
+            if target_accounts and post_clip_to_account:
+                logger.info(f"Auto-posting {len(downloaded_clips)} clips to {len(target_accounts)} target account(s)...")
+                for idx, clip_info in enumerate(downloaded_clips):
+                    clip_info.setdefault("postings", {})
                     sched_time = datetime.now(timezone.utc) + timedelta(hours=initial_delay + (idx * stagger_hours))
-                    post_res = upload_short_to_youtube(
-                        video_file_path=clip_info["local_path"],
-                        title=clip_info["youtube_short_title"],
-                        scheduled_publish_time=sched_time
-                    )
-                    clip_info["youtube_status"] = post_res.get("status")
-                    clip_info["youtube_id"] = post_res.get("id")
-                    clip_info["youtube_url"] = post_res.get("url")
-                    clip_info["publish_at"] = post_res.get("publishAt")
-                    clip_info["status"] = "scheduled" if post_res.get("publishAt") else "published"
-                    logger.info(f"Clip #{idx+1} posted to YouTube: {post_res.get('url')}")
-                except Exception as e:
-                    logger.error(f"Failed to auto-post clip #{idx+1}: {e}")
-                    clip_info["youtube_error"] = str(e)
-                    clip_info["status"] = "posting_failed"
+
+                    for acc in target_accounts:
+                        acc_id = acc.get("id")
+                        acc_name = acc.get("name")
+                        try:
+                            post_res = post_clip_to_account(
+                                account=acc,
+                                video_path=clip_info["local_path"],
+                                title=clip_info["youtube_short_title"],
+                                description=clip_info.get("hook_text", ""),
+                                scheduled_time=sched_time
+                            )
+                            clip_info["postings"][acc_id] = {
+                                "account_id": acc_id,
+                                "account_name": acc_name,
+                                "platform": acc.get("platform"),
+                                "status": post_res.get("status"),
+                                "url": post_res.get("url"),
+                                "id": post_res.get("id"),
+                                "publish_at": post_res.get("publishAt"),
+                                "error": None
+                            }
+                            # Preserve YouTube backward compatibility fields
+                            if acc.get("platform") == "youtube":
+                                clip_info["youtube_status"] = post_res.get("status")
+                                clip_info["youtube_id"] = post_res.get("id")
+                                clip_info["youtube_url"] = post_res.get("url")
+                                clip_info["publish_at"] = post_res.get("publishAt")
+                            logger.info(f"Clip #{idx+1} posted to [{acc_name}] ({acc.get('platform')}): {post_res.get('url')}")
+                        except Exception as e:
+                            logger.error(f"Failed to post clip #{idx+1} to [{acc_name}]: {e}")
+                            clip_info["postings"][acc_id] = {
+                                "account_id": acc_id,
+                                "account_name": acc_name,
+                                "platform": acc.get("platform"),
+                                "status": "posting_failed",
+                                "error": str(e)
+                            }
+                            if acc.get("platform") == "youtube":
+                                clip_info["youtube_error"] = str(e)
+
+                    # Update overall clip status
+                    statuses = [p.get("status") for p in clip_info["postings"].values()]
+                    if any(s == "scheduled" for s in statuses):
+                        clip_info["status"] = "scheduled"
+                    elif any(s in ("published", "uploaded", "simulated", "draft") for s in statuses):
+                        clip_info["status"] = "published"
+                    elif all(s == "posting_failed" for s in statuses):
+                        clip_info["status"] = "posting_failed"
+
+            elif upload_short_to_youtube:
+                logger.info(f"Auto-posting {len(downloaded_clips)} clips to default YouTube channel...")
+                for idx, clip_info in enumerate(downloaded_clips):
+                    try:
+                        sched_time = datetime.now(timezone.utc) + timedelta(hours=initial_delay + (idx * stagger_hours))
+                        post_res = upload_short_to_youtube(
+                            video_file_path=clip_info["local_path"],
+                            title=clip_info["youtube_short_title"],
+                            scheduled_publish_time=sched_time
+                        )
+                        clip_info["youtube_status"] = post_res.get("status")
+                        clip_info["youtube_id"] = post_res.get("id")
+                        clip_info["youtube_url"] = post_res.get("url")
+                        clip_info["publish_at"] = post_res.get("publishAt")
+                        clip_info["status"] = "scheduled" if post_res.get("publishAt") else "published"
+                        logger.info(f"Clip #{idx+1} posted to YouTube: {post_res.get('url')}")
+                    except Exception as e:
+                        logger.error(f"Failed to auto-post clip #{idx+1}: {e}")
+                        clip_info["youtube_error"] = str(e)
+                        clip_info["status"] = "posting_failed"
 
         fresh_queue["completed"].append(item)
         logger.info(f"Video [{item_id}] completed! Generated {len(downloaded_clips)} shorts.")
