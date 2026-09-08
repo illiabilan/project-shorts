@@ -33,8 +33,8 @@ fi
 
 # 3. Clone openshorts-repo if missing
 if [ ! -d "openshorts-repo" ]; then
-    echo "[*] Клонуємо рушій OpenShorts..."
-    git clone https://github.com/mutonby/openshorts.git openshorts-repo
+    echo "[*] Клонуємо кастомізований рушій OpenShorts..."
+    git clone https://github.com/illiabilan/openshorts.git openshorts-repo || git clone https://github.com/mutonby/openshorts.git openshorts-repo
 fi
 
 # 4. Create virtual environment with Python 3.11
